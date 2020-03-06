@@ -97,18 +97,28 @@ case class PartitionProject(projectList: Seq[Expression], child: SparkPlan) exte
   def generateIterator(input: Iterator[Row]): Iterator[Row] = {
     // This is the key generator for the course-grained external hashing.
     val keyGenerator = CS143Utils.getNewProjection(projectList, child.output)
-
-    /* IMPLEMENT THIS METHOD */
+    // partition the input into disk
+    val hashedRelation: DiskHashedRelation = DiskHashedRelation(input, keyGenerator)
+    val partitions: Iterator[DiskPartition] = hashedRelation.getIterator()
+    // only call once to construct in-memory memoization before fetching partitions
+    val cacheGenerator: (Iterator[Row] => Iterator[Row]) = CS143Utils.generateCachingIterator(projectList, child.output)
+    var currentPartition: Iterator[Row] = null
 
     new Iterator[Row] {
+
       def hasNext() = {
-        /* IMPLEMENT THIS METHOD */
-        false
+        if (currentPartition == null) {
+          fetchNextPartition()
+        }
+        currentPartition.hasNext || fetchNextPartition()
       }
 
       def next() = {
-        /* IMPLEMENT THIS METHOD */
-        null
+        if (currentPartition.hasNext || fetchNextPartition()) {
+          currentPartition.next()
+        } else {
+          null
+        }
       }
 
       /**
@@ -118,8 +128,12 @@ case class PartitionProject(projectList: Seq[Expression], child: SparkPlan) exte
         * @return
         */
       private def fetchNextPartition(): Boolean  = {
-        /* IMPLEMENT THIS METHOD */
-        false
+        if (partitions.hasNext) {
+          currentPartition = cacheGenerator(partitions.next().getData())
+          currentPartition.hasNext
+        }else {
+          false
+        }
       }
     }
   }

@@ -128,9 +128,14 @@ object CS143Utils {
     * @return
     */
   def getUdfFromExpressions(expressions: Seq[Expression]): ScalaUdf = {
-    /* IMPLEMENT THIS METHOD */
-    null
-  }
+    var udf: ScalaUdf = null
+    for (e <- expressions) {
+      if (e.isInstanceOf[ScalaUdf]) {
+        udf = e.asInstanceOf[ScalaUdf]
+      }
+    }
+    udf
+    }
 
   /**
     * This function takes a sequence of expressions. If there is no UDF in the sequence of expressions, it does
@@ -224,13 +229,28 @@ object CachingIteratorGenerator {
       val cache: JavaHashMap[Row, Row] = new JavaHashMap[Row, Row]()
 
       def hasNext() = {
-        /* IMPLEMENT THIS METHOD */
-        false
+        input.hasNext
       }
 
       def next() = {
-        /* IMPLEMENT THIS METHOD */
-        null
+        if (!input.hasNext) {
+          null
+        }
+        var udfProj: Row = null
+        val currentRow: Row = input.next()
+        val cacheKey: Row = cacheKeyProjection(currentRow)
+        val preUdfProj: Row = preUdfProjection(currentRow)
+        val postUdfProj: Row = postUdfProjection(currentRow)
+
+        // already cached, retrieve it from cache
+        if (cache.containsKey(cacheKey)) {
+          udfProj = cache.get(cacheKey)
+        } else { // evaluate and cache
+          udfProj = udfProject(cacheKey)
+          cache.put(cacheKey, udfProj)
+        }
+        // concatenate the result and convert to Row
+        Row.fromSeq(preUdfProj ++ udfProj ++ postUdfProj)
       }
     }
   }
@@ -252,13 +272,14 @@ object AggregateIteratorGenerator {
       val postAggregateProjection = CS143Utils.getNewProjection(resultExpressions, inputSchema)
 
       def hasNext() = {
-        /* IMPLEMENT THIS METHOD */
-        false
+        input.hasNext
       }
 
       def next() = {
-        /* IMPLEMENT THIS METHOD */
-        null
+        val joinedRow = new JoinedRow4;
+        val (group, aggFunction) = input.next() // extract group data and aggregate function from input
+        var aggregateResults = new GenericMutableRow(Array(aggFunction.eval(EmptyRow))); // evaluate the aggregate function and get the results
+        postAggregateProjection(joinedRow(aggregateResults, group)) // concatenate aggregate result and group data
       }
     }
   }

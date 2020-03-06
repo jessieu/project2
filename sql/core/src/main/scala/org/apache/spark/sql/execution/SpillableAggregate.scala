@@ -54,13 +54,23 @@ case class SpillableAggregate(
                                 resultAttribute: AttributeReference)
 
   /** Physical aggregator generated from a logical expression.  */
-  private[this] val aggregator: ComputedAggregate = null //IMPLEMENT ME
+  private[this] val computedAggregates = aggregateExpressions.flatMap { agg =>
+    agg.collect {
+      case a: AggregateExpression =>
+        ComputedAggregate(
+          a,
+          BindReferences.bindReference(a, child.output),
+          AttributeReference(s"aggResult:$a", a.dataType, a.nullable)())
+    }
+  }.toArray
+
+  private[this] val aggregator: ComputedAggregate = computedAggregates(0) //IMPLEMENT ME
 
   /** Schema of the aggregate.  */
-  private[this] val aggregatorSchema: AttributeReference = null //IMPLEMENT ME
+  private[this] val aggregatorSchema: AttributeReference = aggregator.resultAttribute //IMPLEMENT ME
 
   /** Creates a new aggregator instance.  */
-  private[this] def newAggregatorInstance(): AggregateFunction = null //IMPLEMENT ME
+  private[this] def newAggregatorInstance(): AggregateFunction = aggregator.aggregate.newInstance() //IMPLEMENT ME
 
   /** Named attributes used to substitute grouping attributes in the final result. */
   private[this] val namedGroups = groupingExpressions.map {
@@ -103,7 +113,6 @@ case class SpillableAggregate(
     var data = input
 
     def initSpills(): Array[DiskPartition] = {
-      /* IMPLEMENT THIS METHOD */
       null
     }
 
@@ -121,13 +130,15 @@ case class SpillableAggregate(
       var aggregateResult: Iterator[Row] = aggregate()
 
       def hasNext() = {
-        /* IMPLEMENT THIS METHOD */
-        false
+        aggregateResult.hasNext
       }
 
       def next() = {
-        /* IMPLEMENT THIS METHOD */
-        null
+        if (!aggregateResult.hasNext) {
+          null
+        }
+        aggregateResult.next()
+
       }
 
       /**
@@ -136,8 +147,26 @@ case class SpillableAggregate(
         * @return
         */
       private def aggregate(): Iterator[Row] = {
-        /* IMPLEMENT THIS METHOD */
-        null
+        // drain to table
+        var currentRow: Row = null
+        while (data.hasNext) {
+          currentRow = data.next()
+          val group = groupingProjection(currentRow) // get group data as key
+          var currentBuffer = currentAggregationTable(group) // retrieve aggregate function from the aggregation hashTable
+
+          if (currentBuffer == null) { // not in the table, add it
+              // add to table
+              currentBuffer = newAggregatorInstance()
+              currentAggregationTable.update(group, currentBuffer)
+          }
+          // has to check even update the table, otherwise the buffer count is incorrect
+          if (currentBuffer != null) {
+            currentBuffer.update(currentRow)
+          }
+        }
+
+        val inputSchema = Seq(aggregatorSchema) ++ namedGroups.map(_._2)
+        AggregateIteratorGenerator(resultExpression, inputSchema)(currentAggregationTable.iterator)
       }
 
       /**
@@ -147,6 +176,7 @@ case class SpillableAggregate(
         */
       private def spillRecord(group: Row, row: Row)  = {
         /* IMPLEMENT THIS METHOD */
+        null
       }
 
       /**
